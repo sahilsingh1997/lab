@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aml_ve_db
+    hostname: postgres  # Explicitly set the network name
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: aml_validator_engine
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  kafka:
+    image: apache/kafka:latest
+    container_name: aml-validator-engine
+    hostname: kafka  # Explicitly set the network name
+    ports:
+      - "9092:9092"
+      - "29092:29092"   # Host-facing listener so producer on host reaches same broker as consumer
+    environment:
+      - KAFKA_NODE_ID=1
+      - KAFKA_PROCESS_ROLES=broker,controller
+      # PLAINTEXT = in-docker (kafka:9092), PLAINTEXT_HOST = from host (localhost:29092), CONTROLLER = quorum
+      - KAFKA_LISTENERS=PLAINTEXT://:9092,PLAINTEXT_HOST://:29092,CONTROLLER://:9093
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CLUSTER_ID=aml-ve-cluster-id
+
+  data-pipeline:
+    build: .
+    container_name: aml_ve_pipeline
+    hostname: data-pipeline
+    depends_on:
+      - kafka
+      - postgres
+    links: # This forces the network to map the names
+      - kafka
+      - postgres
+    environment:
+      - KAFKA_BROKER=kafka:9092
+      - DB_HOST=postgres
+    command: tail -f /dev/null 
+
+volumes:
+  postgres_data:
